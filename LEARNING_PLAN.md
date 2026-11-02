@@ -355,6 +355,20 @@ DeepLearningLab/
 
 主流程伪代码：“准备四样本与三个同起点模型 → 完整batch参考一步 → 两微批按1/2缩放累积并更新一步 → 同样累积后裁剪再更新一步 → 对照梯度/参数/更新次数与裁剪前后范数”。记录可用打印或字典，必要内容为方法名、backward次数、step次数、参考/累积梯度与更新后参数、裁剪前后范数，不强制记录文件或函数签名。当前第一步只准备数据与同起点模型，再完成参考组。AMP后续使用autocast选择合适精度，CUDA FP16场景GradScaler负责scale/backward、窗口结束unscale、clip、scaler.step/update；不在当前CPU脚本中直接运行CUDA API，不强制手工model.half。
 
+**D09 CUDA AMP组织（2026-10-29）**：恢复到已具备CUDA的Linux设备，先依据当前学生文件核验已有CPU累积/裁剪，不要求重复编写。下一练习建议 `lessons/d09/21_amp_accum_clip.py`，复用20_grad_accum_clip.py的数据、同起点模型与全局范数计算，比较CUDA FP32与CUDA FP16 AMP各一个有效batch更新。CPU任务与AMP各自按实际证据记录，D08最终CUDA复核不混入本次教学。作者资源选nanoGPT train.py约274–297行的autocast/累积/缩放/裁剪/更新路径；旧AMP写法用本地Torch2.10的torch.autocast和torch.amp.GradScaler校对，不复制完整训练循环。
+
+**AMP原理和范围**：混合精度按运算选择dtype，不手工model.half；本轮参数/输入/目标为CUDA float32，autocast中的Linear输出float16、MSE标量float32，FP32参数的grad仍float32。FP16中间梯度可能下溢，GradScaler将损失乘S使反向梯度放大，累积完成后除S还原；累积窗口内S不变，且只unscale一次，clip在unscale之后。非有限梯度时scaler.step可跳过更新，返回None不能作为是否更新的判据。BF16指数范围较大，通常不需FP16式缩放；本机支持BF16不改变本次FP16机制练习，不强制额外BF16组。AMP不保证总显存减半或任何小模型更快，性能对照延后到有代表性的模型按需观察，不作本轮门槛。
+
+| 功能块/目的 | 输入输出与操作 | API参数、返回、副作用与位置 | 自查 |
+|---|---|---|---|
+| 1. 同起点与FP32参考 | 沿用X/Y=[4,1]、两个独立Linear1→1、seed42、CUDA float32参数与数据，各自SGD lr.1/无动量衰减。参考组两个[2,1]微批，每个mean MSE除2累积，clip阈值.1后一次step | 复用已通过的累积/裁剪逻辑，不引入BN/Dropout；模型整体toCUDA后绑定优化器，复制初值在任何更新前完成 | 两组初值相同、参数独立，FP32组也裁剪；只一个有效batch，不比较收敛 |
+| 2. autocast前向 | 每微批在上下文内做Linear、MSE和loss/2；输出预测[2,1]及标量loss，反向在上下文外 | torch.autocast(device_type='cuda',dtype=torch.float16)返回上下文管理器，进入/退出控制范围内eligible运算精度，不永久改模型/输入。with只包前向和loss | 记录参数/输入/预测/loss dtype，不把所有Tensor变half或把loss必须half当目标 |
+| 3. 缩放后累积 | AMP模型只创建一个scaler，清grad一次；两个微批分别缩放归一化后的loss并backward | torch.amp.GradScaler('cuda',init_scale=128.0)返回有状态scaler，放在微批循环外；scale(loss)返回新缩放Tensor，不原地改loss。get_scale返回Python float；init_scale128是本小实验配置，避免默认大scale在第一次小窗口引发溢出跳步，不是通用最佳值 | 仍是loss/2，不以scale替代平均；微批中不step/unscale/update，不需retain_graph |
+| 4. 还原/裁剪/更新 | 两次backward完毕，观察放大梯度范数；还原后统一clip .1，重算裁剪后范数，再更新一次 | scaler.unscale_(optimizer)原地除grad并检查非有限，返回None，每窗口一次；clip_grad_norm_返回裁剪前的真实范数；scaler.step(optimizer)检查后调用/可能跳过optimizer.step，返回底层step结果；scaler.update()窗口末调整scale返回None | 不能裁剪放大的梯度、不能额外optimizer.step；记录scale前后、还原前后范数和参数实际变化，默认growth_interval2000，本次成功更新后scale不变是正常的 |
+| 5. 有限对照与源码映射 | 两组更新后参数有限且AMP实际更新，裁剪后范数≤.1（容许小误差），参数差异报告而非要求完全相同；打印/字典即可。学生可再对照作者该段代码认出操作顺序 | 复用detach().clone、isfinite、grad_norm；可用allclose(rtol1e-2,atol1e-3)作本小实验的接近参考，不作为所有模型的普遍误差标准；scaled/unscaled范数比应接近本窗口S | 不要求AMP与FP32逐位相等、固定速度/内存优势、故意制造溢出、长期训练、绘图或新工程 |
+
+主流程伪代码：“准备同起点的两组CUDA FP32模型 → 复用普通累积/裁剪参考一步 → AMP窗口开头清grad → 每微批autocast前向/MSE除2，退出上下文后scale/backward → 全部微批结束unscale → clip → scaler.step → scaler.update → 对照dtype、范数、scale及参数”。第一步是迁移数据/两个同起点模型并跑通FP32参考；核心AMP窗口由学生手写，函数化/模块化/计时/显存观察可选。AMP验收后再开展D10的必要验证并进入语言模型主题。
+
 **验收项目 P-D（2026-10-28调整）**：综合核对已有D阶段学生实现，确认数据划分、模型/损失、梯度更新、训练/评估模式、日志与检查点的核心行为正确；优先复用D07/D08及D10的实际证据，不要求另写完整分类项目、指定模块/测试文件数量或新增README。必要检查针对已遇到的真实Bug和核心性质；已有有效检查可复用。CUDA待补范围单独记录，不把静态检查冒充实测，也不阻塞不依赖CUDA的E阶段主题。学生仍自己实现模型与训练核心，无SOTA/固定精度要求。
 
 ## 8. 阶段 E：Transformer、语言建模与 mini-GPT（E01–E14）

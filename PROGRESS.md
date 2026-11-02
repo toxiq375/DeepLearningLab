@@ -47,22 +47,27 @@
 - GPU：NVIDIA RTX PRO 6000 Blackwell Workstation Edition，计算能力 12.0；当前 PyTorch 支持架构列表包含 sm_120。
 - 实际 CUDA 小运算成功：GPU 上 [1,2] 逐元素平方求和，结果为 5.0。本轮只验证环境，不将 Windows 作业验收描述为当前设备的再次执行；Torch 导入提示缺少 NumPy，未改变依赖。
 
-### 当前 Windows 设备（2026-10-26 Session 090 验证）
+### Windows 设备历史（2026-10-26 Session 090 验证）
 
 - 项目根目录：`C:\Github\projects\DeepLearningLab`；解释器：`C:\Users\wwx\miniconda3\envs\dllab\python.exe`。
 - 本轮实测 Python `3.11.17`、Torch `2.10.0+cpu`、CUDA 可用性 False；读取的 cuDNN benchmark/deterministic 属性均为 False，这只是当前 CPU 进程的配置值，不是 CUDA 运算验证。
 - D08 当前入口仍指定 CUDA，保存/恢复函数也调用 CUDA RNG API；本轮仅阅读代码、核对环境与官方文档，未启动训练、覆盖 outputs 或将此前 Linux CUDA 结果描述为本机新结果。
 
+### 当前 Linux CUDA 设备（2026-10-29 Session 094 验证）
+
+- 工作区 `/home/wwx/projects/DeepLearningLab`，解释器 `/home/wwx/anaconda3/envs/dllab/bin/python`；Python3.11.17、Torch2.10.0+cu128、Torch CUDA12.8、CUDA可用，GPU为NVIDIA RTX PRO6000 Blackwell Workstation Edition；is_bf16_supported=True。本轮未重新验证发行版，不将历史Ubuntu版本冒充本轮系统实测。
+- 本轮只执行已有D09 CPU小实验并检查AMP接口/设备，未执行学生CUDA AMP作业或D08最终对照，不据CUDA可用声称这些任务已通过；未改变依赖。
+
 ## 2. 本阶段当前位置
 
 | 字段 | 当前内容 |
 |---|---|
-| 当前主要课程 | D09 — 梯度累积、梯度裁剪与AMP；先进行CPU子任务 |
-| 实际作业 | D09已有学生草稿 `lessons/d09/20_grad_accum_clip.py`，当前Python3.11语法解析未通过；D08八模块保留在 `lessons/d08/`，待CUDA最终复核；产物均归对应课程outputs |
-| 作业状态 | D09 CPU子任务 `IN_PROGRESS`，已有完整实验草稿但未运行验收；D08仍 `IN_PROGRESS`（恢复核心已核验、入口配置已补，待CUDA复核）；D07/P-C保持 `PASSED` |
-| 通过验收的课次 | `C01`、`C02`、`C03`、`C04`、`C05`、`C06`、`C07`、`C08`、`C09`、`C10`、`C11`、`D01`、`D02`、`D03`、`D04`、`D05`、`D06`、`D07`（含 C11 CUDA 核心补充；不等同于全部内容无需提示的独立熟练或所有工具均已实践） |
-| 当前里程碑 | P-C 已通过；D01–D07已通过，D08保存恢复核心已核验、可重复性设置已补，CUDA最终复核待完成；长期P-E是独立mini-GPT；P-D整体工程尚未验收 |
-| 下一个最小动作 | 学生先修正D09第195–198行输出f-string的引号，使Python3.11能解析；再核对第三组调用裁剪函数、标签从tgt分块、总范数平方和及返回字段对应。保留原一步更新任务，不新增工程；CUDA待补项不阻塞独立语言模型主题 |
+| 当前主要课程 | D09 — CUDA AMP与梯度累积/裁剪，核心练习已验收 |
+| 实际作业 | `lessons/d09/20_grad_accum_clip.py`及 `lessons/d09/21_amp.py`已验收；D08八模块保留、CUDA最终复核待做 |
+| 作业状态 | D09 `PASSED`（CPU累积/裁剪及本次CUDA FP16 AMP一次有效更新均已验证）；D08仍 `IN_PROGRESS`（恢复核心/入口配置已核验、最终CUDA对照待做）；D07/P-C保持 `PASSED` |
+| 通过验收的课次 | `C01`、`C02`、`C03`、`C04`、`C05`、`C06`、`C07`、`C08`、`C09`、`C10`、`C11`、`D01`、`D02`、`D03`、`D04`、`D05`、`D06`、`D07`、`D09`（含 C11 CUDA 核心补充；不等同于全部内容无需提示的独立熟练或所有工具均已实践） |
+| 当前里程碑 | P-C及D01–D07/D09核心已通过；D08最终CUDA复核待做；当前优先P-E手写mini-GPT，P-D复用现有成果、未整体验收 |
+| 下一个最小动作 | 用户请求继续时，依据最新计划开展D10必要正确性验证，复用现有成果；D08最终CUDA复核单独保留，不重复构建分类工程 |
 
 **目录迁移说明（2026-10-23）**：当前路径已更新为 `lessons/<课程ID>/`，运行产物进入各课 `outputs/`；历史Session中的旧路径保留，见 `lessons/INDEX.md` 对照。本次仅进行文件/路径与静态检查，不改变已有验收结论。
 
@@ -84,6 +89,10 @@
 - 2026-10-17 学生补充：任务布置应提供明确实现框架，按依赖顺序逐块列出目的、输入输出（Shape/dtype/device）、操作步骤、API 参数/返回值/副作用和使用位置、核心自查点；配合主流程伪代码及必要接口/记录字段，指出当前第一步。函数化为可选组织方式，不代写完整答案，不降低难度或追加验收门槛。已同步到 AGENTS.md 与 LEARNING_PLAN.md。
 
 ### 尚未完整验收的内容
+
+- D09于Session095通过当前CPU累积/裁剪与CUDA FP16 AMP核心范围；AMP仅在本设备一次小型有效batch中验证，不据此声称任意模型AMP数值表现、BF16、显存/速度优势或无提示迁移均已验证。D08最终CUDA复核仍单独待做。
+
+- Session094重读当前文件后，确认Session093所述语法/调用/目标分块/范数/字段问题已由学生修正，实际运行CPU参考/累积/裁剪并通过核心验收；记录中的旧错误为历史事实，不作为当前待办。CPU范围经框架与前次提示修正后通过，不据此称无提示熟练。当前CUDA可用，已展开FP16 AMP与累积/裁剪配合的讲解及分块框架；尚无学生AMP文件/运行证据，整章仍IN_PROGRESS，D08最终复核亦未执行。
 
 - Session093目标审查：D09已存在学生草稿，应按实际文件恢复而非重布置从头创建。Python3.11.17语法解析在第195行报告f-string unmatched '['，尚未执行；静态发现第三组仍调用普通accumulation、裁剪组标签误切input、sqrt未合计平方和、输出字段名不匹配。尚无新增运行/验收证据。路线按2026-10-28主题课与mini-GPT优先安排更新；历史通过不变，D08 CUDA复核与D09 CUDA AMP明确待补。
 
@@ -134,6 +143,10 @@
 ## 5. 掌握证据与待补修点
 
 ### 已验收
+
+- D09 CUDA AMP（Session095）：dllab Python3.11/Torch2.10.0+cu128在RTX PRO6000 Blackwell完整执行 `lessons/d09/21_amp.py`一次；两组均实际backward两次、SGD更新一次、梯度有限且符合old-.1*grad。AMP中参数/loss为float32、预测为float16；scaled norm≈1795.0369、unscaled norm≈14.0237，二者比值128，裁剪后≈0.1；scale=128，FP32与AMP最终参数最大差1.4901161193847656e-7，两组参数均实际变化。两模型初始状态相同且参数独立；只验证本次小型FP16窗口，数据/模型初值未固定seed，数值为单次观察。
+
+- D09 CPU范围（Session094）：dllab Python3.11完整执行学生20_grad_accum_clip.py一次，六项梯度/参数比较及缩放检查True；导师临时观察实际backward/SGD.step分别为参考1/1、累积2/1、累积裁剪2/1。参考与累积grad_w=-6.17730712890625、grad_b约-.339984，更新后weight=1.382269263267517、bias=.8640063405036926；裁剪前norm=6.1866559982299805、后=.09999998658895493，梯度约-.09984887/-.00549544。核验总平方和范数、统一缩放方向、每次真实SGD参数变化符合old-.1*grad，梯度有限、三模型参数对象独立；未执行AMP或GPU训练，不提升整章为PASSED。
 
 - D08阶段证据（Session089，整章尚未通过）：完整checkpoint字段、CPU映射加载、模型/AdamW/CPU-CUDA-loader RNG恢复顺序、计数/历史接续和JSON记录已实际核验。原流程独立进程4轮/2轮/续2轮均运行，所有真实更新梯度存在有限，评估不改变BN buffers，最终4轮/12step/history4条/batch12条，恢复保留interrupt前缀；已有产物与新运行产物均检查。剩余为学生代码中补齐CUDA卷积确定性配置，不能将导师配置后的诊断通过记录成原代码整章验收通过。
 
@@ -1082,6 +1095,24 @@
 - **代码与语法证据**：本地D09已包含数据、三个同起点模型、参考/累积/裁剪函数和对照输出，静态方向可见；使用dllab Python3.11.17仅作ast.parse，第195行f-string外层及字典键双引号冲突，报SyntaxError: f-string: unmatched '['。未执行学生训练或依据代码存在判通过。其余静态提示为main第三组未调用accumulation_clip、裁剪标签从input分块、sqrt两项未先相加、裁剪后字典字段不对应；核心修复留学生手写。
 - **目录与保护**：当前nanoGPT目录不存在，不克隆/创建。沿用lessons/<ID>/outputs和.gitkeep，未来mini_gpt项目按需引入。未改任何学生.py、README、依赖或已有产物；初始本地main...origin/main干净，未检查远端或执行commit/push/pull。本轮文档检查不等于算法重验。
 - **状态与下一步**：D09由EXPLAINED更新为IN_PROGRESS仅依据实际草稿，D08仍待CUDA最终复核；其余通过列表不变。下一项最小任务为D09引号语法，再核对裁剪数据流；之后D10/现有成果核对并进入语言模型主题，不因待GPU实验无限冻结独立内容。不追加手算/注释/问答关卡。
+
+### Session 094 — 2026-10-29（D09 CPU验收通过，继续CUDA AMP完整更新窗口）
+
+- **恢复与范围**：学生请求下一节；重读AGENTS/mentor skill、当前状态与实际Session093、计划目标复核/D09框架、docs/MENTOR_GUIDE及RESOURCE_MAP，查看D09实际文件。磁盘记录仍为旧语法错误，但当前源码已正确修改；先小规模核验再续课，不沿旧聊天跳课。编辑前本地main...origin/main干净，未检查远端。
+- **学生实际修改与通过**：当前第三组调用accumulation_clip，目标从tgt分块，norm正确合计平方和再开根，字段/引号已修正；两次backward的loss各除2、窗口只清一次grad和step一次。runpy完整运行原脚本一次，通过临时profile/包装backward与SGD.step采集调用次数和函数结果，finally恢复方法/观察器；未修改学生文件。六项比较及same_scaled_grad_w均True，具体梯度/参数/范数见掌握证据，CPU核心PASSED。既有提示依赖保留，不虚构独立熟练或CUDA AMP通过。
+- **本机环境**：实测Linux工作区dllab Python3.11.17、Torch2.10.0+cu128、CUDA12.8可用、RTX PRO6000 Blackwell，BF16支持True；核对本地torch.autocast与torch.amp.GradScaler签名。未安装/创建环境或重跑D08训练，D08入口应按学生__main__方式验证的纪律保留，最终复核仍待做。
+- **下一主题与意义**：继续D09尚未实践的CUDA AMP，解决低精度运算与FP16梯度缩放如何配合已有累积/裁剪，并连接nanoGPT训练入口。说明参数FP32、eligible运算按精度执行、Linear预测FP16/MSE FP32/参数grad FP32；放大loss的反向梯度在窗口末还原，所有微批共用同一scale，先unscale再clip，再scaler.step/update，溢出可能跳过step。BF16通常无需同样缩放，本轮选FP16以观察机制，不强制额外BF16组。
+- **学生实现框架**：建议新文件lessons/d09/21_amp_accum_clip.py，保留旧脚本，沿用四样本[4,1]与两个同起点CUDA float32 Linear/SGD lr.1，每组一个有效batch。先复用FP32两微批累积+clip .1，再手写AMP版本：autocast仅前向/MSE除2，外部scale/backward两次，窗口末unscale一次、clip、scaler.step/update。scaler在窗口外创建init_scale128；记录dtype、scale、还原前后/裁剪后范数与参数变化/两组差异，验证参数有限且实际更新，不要求逐位一致。详细目的/Shape/API/自查/第一步同步LEARNING_PLAN；函数化、多模块、计时显存可选，不新增整套工程。
+- **作者与API来源**：浏览官方PyTorch2.10 amp/amp_examples的autocast dtype、梯度累积/裁剪和Scaler顺序；读取nanoGPT原始train.py关键274–297行作对应，未复制参考实现。原作者旧AMP接口按当前本地接口说明，不照抄安装或性能结论。
+- **状态/下一步**：D09 CPU范围PASSED、CUDA AMP EXPLAINED但未有学生实现，整章IN_PROGRESS；下一最小动作是新练习数据/同起点模型及FP32参考一步。AMP验收后开展D10必要验证并进入语言模型，D08待补独立记录。不写学生算法、运行新GPU训练、改依赖/README或执行Git同步，仅维护规划/进度。
+
+### Session 095 — 2026-11-02（D09 CUDA FP16 AMP核心验收通过）
+
+- **恢复与范围**：学生请求验收 `lessons/d09/21_amp.py`，并说明AMP语法正确即可；重读AGENTS、导师skill/指南、当前位置及实际Session094、D09对应规划和学生文件。D09 CPU子任务此前已通过，D08最终CUDA复核仍待做。保留已有LEARNING_PLAN.md/PROGRESS.md未提交修改与学生未跟踪代码，不改学生实现。
+- **静态检查**：两个同结构CUDA模型通过load_state_dict取得相同初值、优化器独立绑定；每个窗口先清grad、两个等长微批各MSE/2；autocast仅包前向和loss，AMP在上下文外scale/backward；全部反向后unscale一次、按全局范数0.1裁剪，然后scaler.step/update。FP32参考组采用同一函数并关闭autocast；模型未被手动half。
+- **真实运行与证据**：在dllab Python3.11.17、Torch2.10.0+cu128、CUDA12.8、RTX PRO6000 Blackwell上经runpy完整执行学生脚本一次，临时包装backward/SGD.step并使用profile观察真实调用和更新，finally恢复方法/profile。两组各backward两次、实际SGD step一次，所有梯度有限、更新均满足old-.1*grad且参数实际改变；AMP预测float16、参数及loss float32，scale128、缩放前后梯度范数比128、裁剪后约0.1。两组最终参数最大绝对差1.4901161193847656e-7。学生未固定模型初始化种子，具体范数属于本次运行，不作为稳定数值结论。
+- **结论与范围**：D09 `PASSED`，依据此前CPU练习及此次CUDA FP16 AMP有效更新；实测norm_scaled≈1795.0369、norm_before≈14.0237、norm_after≈0.1。以学生指定实际文件名21_amp.py通过，不要求重命名、补日志、制造溢出或性能测试。尚未实践BF16、溢出跳步或速度/显存比较；此前框架提示依赖及D08独立待验收范围保留。
+- **下一步 / Git**：用户请求后按规划开展D10必要验证，复用已有代码并接续mini-GPT主线；不自动推进。只更新进度与索引，未修改学生代码/依赖/已有输出或执行Git同步，未检查远端。
 
 ## 7. 后续 Session 模板（复制本段追加，不要覆盖历史）
 

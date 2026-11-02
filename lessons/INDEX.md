@@ -26,7 +26,7 @@
 | D06 | 卷积与池化 | `lessons/17_conv_pool.py` | [d06/17_conv_pool.py](d06/17_conv_pool.py) |
 | D07 | 残差 CNN | `lessons/18_cnn_residual.py` | [d07/18_cnn_residual.py](d07/18_cnn_residual.py) |
 | D08 | 完整 checkpoint 与续训 | 原规划为 `lessons/19_checkpoint_resume.py`，学生实际使用多模块 | [d08/](d08/)：`config.py`、`data.py`、`model.py`、`engine.py`、`checkpoint.py`、`compare.py`、`train.py` |
-| D09 | 梯度累积、梯度裁剪与AMP | 新课程，无历史迁移脚本 | [d09/](d09/)：`20_grad_accum_clip.py` 待学生手写；CPU子任务先行，CUDA AMP实践待设备 |
+| D09 | 梯度累积、梯度裁剪与AMP | 新课程，无历史迁移脚本 | [20_grad_accum_clip.py](d09/20_grad_accum_clip.py)；[21_amp.py](d09/21_amp.py) |
 
 ## 运行与产物
 
