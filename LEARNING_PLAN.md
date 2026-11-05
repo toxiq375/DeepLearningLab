@@ -369,6 +369,17 @@ DeepLearningLab/
 
 主流程伪代码：“准备同起点的两组CUDA FP32模型 → 复用普通累积/裁剪参考一步 → AMP窗口开头清grad → 每微批autocast前向/MSE除2，退出上下文后scale/backward → 全部微批结束unscale → clip → scaler.step → scaler.update → 对照dtype、范数、scale及参数”。第一步是迁移数据/两个同起点模型并跑通FP32参考；核心AMP窗口由学生手写，函数化/模块化/计时/显存观察可选。AMP验收后再开展D10的必要验证并进入语言模型主题。
 
+**D10 本轮组织（2026-11-03）**：以学生D01曾遇到的预测[4,1]、目标[4]导致MSE错误广播为真实动机，讲解测试是验证可观察的性质，区分shape相等、有限梯度、真实参数更新及单批过拟合各能证明什么。复用D09四样本线性回归，学生自行写小型检查脚本 `lessons/d10/22_training_checks.py`；CPU float32，输入X=[[-2],[-1],[1],[2]]、Y=2X+1，seed42，Linear(1,1)、SGD(lr=.1,momentum0,weight_decay0)，固定同一batch约40次更新。只验证当前模型和指定输入，无需下载、pytest、训练大型模型或重写分类器。正确性断言与预期失败以Python assert/try-except表达；用提示而非完整代码。2026-11-05学生明确将本次验收限定为Shape守卫、weight梯度及SGD更新，不单独检查bias或比较初末loss；实际提交 `lessons/d10/main.py`，该范围通过证据见PROGRESS.md Session097，不把未执行的过拟合对照记录为已验证。
+
+| 功能块/目的 | 输入输出与操作 | API参数、返回、副作用/位置 | 核心自查 |
+|---|---|---|---|
+| 1. 固定输入和防广播形状检查 | X/Y float32 CPU [4,1]，模型输出prediction [4,1]；定义或局部实现形状检查，检查通过返回None；将Y沿末轴squeeze得到bad target [4]，交给同一检查，预期触发AssertionError并捕获 | manual_seed(42)设初始化；nn.Linear(1,1)返回[B,1]；Tensor.squeeze(dim=-1)仅长度1时移除指定轴，返回Tensor不改变原Y；assert prediction.shape==target.shape在MSE之前检查；try/except AssertionError专门捕获预期异常，未发生异常要使测试失败 | 正确目标通过，错误[4]必须被守卫拒绝，别将预期失败误报程序崩溃；不计算错误target的MSE |
+| 2. 一次反向的梯度检查 | 零梯度后计算标量MSE并backward，对weight[1,1]/bias[1]的grad检查存在、shape一致且有限；记录独立快照 | optimizer.zero_grad(set_to_none=True)清grad；loss.backward()累积梯度；torch.isfinite(tensor).all()返回标量bool Tensor；detach().clone()保存数值快照，不保留计算图或共享存储 | 每个参数的grad不为None、shape与参数相同、有限；至少一个非零梯度（具体本批seed/模型），不要求所有情况所有梯度均非零 |
+| 3. 检查实际SGD更新 | 快照参数p及其梯度g，调用一次SGD.step后，比较各参数与p−0.1g，至少一个参数改变；本题SGD无momentum/weight_decay | optimizer.step()原地更新参数、SGD返回None；torch.testing.assert_close(actual,expected,rtol=1e-5,atol=1e-6)通过返回None，失败抛AssertionError，或torch.allclose+assert | 参数梯度用于真正的优化器；不把p变化当作梯度本身一定正确的证明，也不将一般AdamW更新误写成SGD公式 |
+| 4. 单批过拟合小实验 | 在同一个固定X/Y上总计40次SGD更新（含上一步首次更新）；记录初始loss和第40步后用当前参数重新计算的loss，报告下降及可选参数 | 每步zero_grad→forward→检查shape→MSE→backward→step；结束时no_grad重新前向/loss，item返回Python数值；原地step只更新参数，不会更新先前的loss对象 | 有限且最终loss相对初值明显下降；这只说明模型能拟合该批，不能证明泛化，也不能单凭下降证明样本配对或完整算法无误 |
+
+主流程伪代码：“固定小数据/模型→校验正确shape、构造错误target并验证守卫捕获→正确标签做一次反向、检查梯度→快照并检查一次真实SGD更新→原batch再训练剩余步→重算最终loss”。学生可以直接编写本课单个脚本，或自行复用D09已验证的模型/数据片段；因旧脚本顶层有初始化，不要求直接import或强制函数化。不强制pytest、额外边界集、数值梯度或指定loss阈值；有效断言应能捕获已知广播问题和错误更新。第一步是准备数据和shape守卫；完成后集中验收。来源：PyTorch官方broadcasting语义，以及nanoGPT作者train.py的get_batch输入/错位目标路径（D10仅联系测试动机，不提前要求实现语言模型）。
+
 **验收项目 P-D（2026-10-28调整）**：综合核对已有D阶段学生实现，确认数据划分、模型/损失、梯度更新、训练/评估模式、日志与检查点的核心行为正确；优先复用D07/D08及D10的实际证据，不要求另写完整分类项目、指定模块/测试文件数量或新增README。必要检查针对已遇到的真实Bug和核心性质；已有有效检查可复用。CUDA待补范围单独记录，不把静态检查冒充实测，也不阻塞不依赖CUDA的E阶段主题。学生仍自己实现模型与训练核心，无SOTA/固定精度要求。
 
 ## 8. 阶段 E：Transformer、语言建模与 mini-GPT（E01–E14）
@@ -405,6 +416,18 @@ DeepLearningLab/
 | 7. 对照nanoGPT并解释差异 | E13 | 将本人实现对应data/get_batch、model/Block、train/optimizer、generate/sample，选一处小型数值/行为对照 | 说清公式/Shape/数据流与不同设计；不抄完整答案，不先做DDP或大规模GPT-2复现 |
 
 每块可跨数次会话。上表是课程目标和产物框架，不是一次性作业；开课时仍按学生当前代码给出目的→输入输出→操作/API→自查→第一步。源码阅读课应有一个小型代码观察/对照，纯概念内容也配套可计算产物；不为已通过的相同知识重复建项目。E14、完整BPE及现代结构扩展在首个P-E闭环之后安排。
+
+**E01–E02 本轮组织（2026-11-05）**：用一个本地极小语料贯穿字符词表、编码/解码、错位next-token监督、可训练bigram查表、交叉熵和逐字符采样。先说明token/词表/ID、语言模型条件概率与链式分解；bigram只依赖当前字符，输出是下一字符分布，没有注意力/长上下文；因此它是后续GPT的简化基线而非GPT本身。一个token在本实验为一个Python字符（包含空格和换行），不要求BPE或外部数据。建议学生手写 `lessons/e01/main.py`，CPU足够；`lessons/e01/outputs/`按课程约定用于可选产物。自有固定字符串 `"hello world\n"` 重复8次，长度96、字符词表V=9；`sorted(set(text))`确定ID次序，词典char→ID及反向表需一致。模型种子42、AdamW lr=.05/weight_decay0，训练整段序列100次小更新；无需固定loss门槛或文本语义质量，不强制初末loss比较。
+
+| 功能块/目的 | 输入输出与操作 | API参数/返回值/副作用及位置 | 核心自查 |
+|---|---|---|---|
+| 1. 字符词表/往返 | 固定text长度96、V=9；构造字符与ID一一对应，encode(str)→list[int]、decode(ids)→str；CPU普通Python对象 | sorted(set(text))去重并排序返回列表；enumerate产生(索引,字符)对；字典索引查ID、列表索引查字符，join连接字符；字符串不参与梯度 | 原文decode(encode(text))精确相等；换行和空格均入词表；训练/生成共用同一映射 |
+| 2. 错位数据 | 全文IDs long CPU [96]；取前95与后95，增加batch维，x/y均[1,95]、torch.long、同设备 | torch.tensor(ids,dtype=torch.long)创建ID张量；[:-1]/[1:]分别取相邻输入/标签，unsqueeze(0)插入batch轴并返回新Tensor/view；ID无梯度 | x每个位置对应原文当前位置，y为紧跟的下个字符；x[:,1:]与y[:,:-1]一致；不要只看shape |
+| 3. bigram查表与CE | nn.Embedding(V,V)可学习weight[V,V]；x[1,95] long→logits[1,95,V] float；每位置仅按当前ID取行，该行每列是下个字符得分 | nn.Embedding(num_embeddings=V,embedding_dim=V)注册可训练矩阵，输入ID范围[0,V)；CrossEntropyLoss输入raw logits.reshape(-1,V) [95,V]、targets.reshape(-1) [95] long，返回标量mean；不用提前softmax | 对齐与flatten次序一致；logits维度和标签dtype正确，loss有限；此用法将表行直接解释为分类logits，一般Embedding(V,C)可输出普通特征 |
+| 4. 训练小基线 | seed42、AdamW(model.parameters(),lr=.05,weight_decay=0)，整段序列100次更新；long x/y与FP32参数同CPU | 每次zero_grad→embedding→CE→backward→step，记录可打印loss.item()，不用记录或比较初末loss；反向写参数grad，step原地修改参数 | 至少一次真实参数更新、loss/梯度有限；不要求曲线、特定值/准确率或泛化结论 |
+| 5. 自回归采样 | 初始'h'已在词表，将其编码为[1,1] long；逐次只送最近一个ID，查表得[1,1,V]，取最后位置[1,V]，softmax后采样[1,1]，与已有序列沿dim1拼接；循环20次后总长21，再decode | no_grad用于采样；torch.softmax(logits,dim=-1)返回概率、按词表维归一；torch.multinomial(probs,num_samples=1)返回long索引且随机采样；torch.cat(...,dim=1)返回拼接新Tensor；新ID作为下一轮输入 | ID范围[0,V)，输出长度21且前缀h，所有字符均在词表；随机生成不要求固定句子或语义；由于模型只看最后一个字符，无法记忆更长语境 |
+
+主流程伪代码：“固定文本→建立词表/编码并验证往返→错位构造x/y→创建[V,V]转移得分表→CE训练→从h逐次采样20个ID→解码”。首先实现词表/encode/decode并完成往返，再逐块接数据/模型/训练/生成；函数化与日志文件可选，训练与生成核心由学生编写。仅验证此小文本训练数据，不声称验证集/泛化或成熟GPT；D08最终CUDA复核独立保留。参考作者makemore的字符级bigram主题及PyTorch2.10 Embedding/CE/multinomial API，不复制参考整段实现。
 
 ### P-E：mini-GPT 必须满足的验收要求
 
