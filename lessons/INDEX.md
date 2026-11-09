@@ -28,6 +28,7 @@
 | D08 | 完整 checkpoint 与续训 | 原规划为 `lessons/19_checkpoint_resume.py`，学生实际使用多模块 | [d08/](d08/)：`config.py`、`data.py`、`model.py`、`engine.py`、`checkpoint.py`、`compare.py`、`train.py` |
 | D09 | 梯度累积、梯度裁剪与AMP | 新课程，无历史迁移脚本 | [20_grad_accum_clip.py](d09/20_grad_accum_clip.py)；[21_amp.py](d09/21_amp.py) |
 | D10 | Shape、梯度与SGD更新检查 | 新课程，无历史迁移脚本 | [main.py](d10/main.py) |
+| E01–E02 | 字符编码、bigram与自回归采样 | 学生使用已有 d11 目录 | [main.py](d11/main.py) |
 
 ## 运行与产物
 
