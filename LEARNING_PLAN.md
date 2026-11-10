@@ -429,6 +429,20 @@ DeepLearningLab/
 
 主流程伪代码：“固定文本→建立词表/编码并验证往返→错位构造x/y→创建[V,V]转移得分表→CE训练→从h逐次采样20个ID→解码”。首先实现词表/encode/decode并完成往返，再逐块接数据/模型/训练/生成；函数化与日志文件可选，训练与生成核心由学生编写。仅验证此小文本训练数据，不声称验证集/泛化或成熟GPT；D08最终CUDA复核独立保留。参考作者makemore的字符级bigram主题及PyTorch2.10 Embedding/CE/multinomial API，不复制参考整段实现。
 
+**E03 本轮组织（2026-11-10）**：承接已验收bigram，学习Embedding作为可训练字符表示、固定3字符上下文与MLP next-token预测。输入[ B,3 ] long→Embedding(9,4)特征[ B,3,4 ]→保序flatten[ B,12 ]→Linear12→32/Tanh→Linear32→9 logits[ B,9 ]，目标[ B ] long；CE以原始logits和每个上下文之后的一个字符为目标。上节[V,V]直接是候选字符分数，本节[V,4]是学到的特征，需通过MLP输出9类分数；相同字符共享Embedding行，梯度更新这些向量。固定位置拼接使不同槽位可被后续权重区分，但不能保证任意初值对换序均有不同输出；并非GPT的位置编码或注意力。
+
+建议学生手写 `lessons/e03/main.py`，复用当前 `lessons/e01/main.py` 的固定文本/词表思路，不要求导入含顶层对象创建和打印的旧脚本。固定原文 `"hello world\n"`×8（96字符），按原字符位置先拆train前72和val后24，各自独立滑窗，不跨分界；只用训练段构造排序词表，9字符均在训练段出现。窗口T3，train 72−3=69、val 24−3=21；输入x_train[69,3]/y_train[69]、x_val[21,3]/y_val[21]均CPU long，模型float32 CPU。样本索引s的输入为segment[s:s+3]，目标segment[s+3]，范围s=0..len(segment)−4。相邻窗口高度重叠；此数据重复结构使train/val上下文也会相同，字符位置不交叉不等于独立样本或真实泛化测试。
+
+| 功能块/目的 | 输入/输出与操作 | API参数、返回、副作用和使用位置 | 核心自查 |
+|---|---|---|---|
+| 1. 划分/词表 | text[96]先按位置分train[72]/val[24]；字符映射由train构造，V=9，编码两个分段；每段ID序列long | Python切片不改原文本；sorted(set(train_text))返回字符表，dict查ID；torch.tensor(...,dtype=torch.long)返回CPU索引张量 | 两段不共享原文位置，训练词表覆盖val字符；同文本重复结构不宣传独立泛化 |
+| 2. 有序上下文/标签 | 对各段分别滑动窗口，输入[N,3]、目标[N]；train N69、val N21 | 每个s切3个有序ID，标签取紧接第4个ID；可torch.stack(xs)→[N,3]、torch.stack(ys)→[N]，或由列表建tensor，保持long | 首几项`hel`→`l`、`ell`→`o`、`llo`→空格；最后目标不越界，train/val窗口不跨分界 |
+| 3. Embedding+MLP | 模型输入[B,3] long；中间[B,3,4] float32、flatten[B,12]、隐藏[B,32]；输出[B,9]，每条上下文预测一个ID | nn.Embedding(num_embeddings=9,embedding_dim=4)注册weight[9,4]；flatten(start_dim=1)保留batch及位置顺序；nn.Linear(12,32)、nn.Tanh()、nn.Linear(32,9)在__init__注册并在forward调用，返回raw logits | B=69时[69,3]→[69,3,4]→[69,12]→[69,32]→[69,9]，不是[69,3,9]；不先softmax再CE |
+| 4. 训练/验证 | seed42，AdamW(lr=.03,weight_decay=0)，全train batch进行200次小更新；CE输入logits[69,9]、y[69] long，同CPU | CrossEntropyLoss mean返回标量；每次zero_grad/forward/loss/backward/step；Embedding和Linear参数应有有限梯度且至少参数更新。最后eval/no_grad对val做一次独立前向和CE | val只参与评估，不参与backward/step/选超参；无需初末loss对比、固定精度或泛化结论 |
+| 5. 相同末字符的不同上下文 | 比较两个真实train窗口hel与ell，二者均以l结尾，但真实下一字符分别为l、o。输入[2,3] long→logits[2,9]→probabilities[2,9] | model.eval()管理模型行为；no_grad关闭评估梯度记录；softmax(dim=-1)沿9类转概率；展示两个上下文实际目标及其预测分布或候选概率 | 不强制argmax/概率达到预设数值；形状与两个目标配对正确，观察多字符信息如何进入MLP，不能仅凭初始随机输出不同就断言模型已学会泛化 |
+
+主流程伪代码：“文本按字符位置分段→训练段建词表并编码两段→各自滑窗/目标→Embedding与MLP前向→train 200次更新→独立val评估→观察hel/ell预测”。第一步为分段、词表和首个窗口；学生手写核心，函数化及连续采样是可选，固定额外测试数、预设准确率、下载和独立项目不要求。作者资源仅对应makemore.py的MLP类“多个token向量拼接预测”的思想，数据边界/训练协议以本课定义为准，官方2.10 Embedding和Linear API为接口来源。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。
