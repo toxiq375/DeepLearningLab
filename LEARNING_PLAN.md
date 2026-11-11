@@ -443,6 +443,19 @@ DeepLearningLab/
 
 主流程伪代码：“文本按字符位置分段→训练段建词表并编码两段→各自滑窗/目标→Embedding与MLP前向→train 200次更新→独立val评估→观察hel/ell预测”。第一步为分段、词表和首个窗口；学生手写核心，函数化及连续采样是可选，固定额外测试数、预设准确率、下载和独立项目不要求。作者资源仅对应makemore.py的MLP类“多个token向量拼接预测”的思想，数据边界/训练协议以本课定义为准，官方2.10 Embedding和Linear API为接口来源。
 
+**E04–E06 本轮组织（2026-11-11）**：将Q/K/V、缩放点积、causal mask、softmax和Value汇总合成一个完整的单头自注意力主题，服务下一步手写Transformer，避免将各API拆为零碎章节。通过学生自己实现的一个模块观察“每个当前位置只能从自身及过去位置聚合内容”，不要求同时构建完整GPT/Tokenizer/训练工程。先定义行是query位置i、列是key/value位置j，score_ij=(q_i·k_j)/sqrt(d)，j>i的分数屏蔽，再对j轴softmax，输出o_i=Σ_j a_ij v_j。缩放用于控制点积尺度；未来位置屏蔽在softmax之前，保留对角线，防止某行全部−inf。用零可见分数的例子展示T=4时行权重[1,0,0,0]、[1/2,1/2,0,0]等；随机模型的实际权重无需均匀。因果性不等同于位置编码，后者待后续模型主题。
+
+**作业：`lessons/e04/main.py`**。学生手写SingleHead或等效nn.Module：CPU float32输入X[2,4,8]；三独立nn.Linear(8,4,bias=False)生成Q/K/V各[2,4,4]；手写矩阵计算、因果遮罩、权重和输出。forward可返回(output,weights)，shape分别[2,4,4]/[2,4,4]；无需训练分类器、下载数据、多头或直接用现成SDPA替代核心。测试随机输入seed42，基于现有autograd知识校验梯度，不设速度/概率/模型准确率门槛。
+
+| 顺序/目的 | 输入输出与操作 | API参数、返回、副作用和使用位置 | 自查 |
+|---|---|---|---|
+| 1. Q/K/V投影 | X [B,T,C]=[2,4,8] float32 CPU，Q/K/V均[B,T,d]=[2,4,4] | nn.Linear(in_features=8,out_features=4,bias=False)三次分别注册独立参数；forward对同一X分别调用，Linear在末轴变换，保留B/T | 三个矩阵独立并参与计算图，B/T不丢；输入可requires_grad=True做反向检查 |
+| 2. 分数与因果遮罩 | Q@K转置后[2,4,4]，按sqrt(4)缩放；mask[T,T] bool/CPU，允许j≤i | K.transpose(-2,-1)返回交换末两轴视图，@按batch矩阵乘；math.sqrt(d)返回数值；torch.ones((T,T),dtype=bool,device=x.device).tril()是允许位置示意；scores.masked_fill(禁止条件,-inf)返回新Tensor，不原地改原score，mask可广播到batch | 行i查询、列j被查询；未来j>i屏蔽，对角线和过去允许；每行至少一项可见，mask反向会屏蔽语义错误 |
+| 3. 权重和加权值 | softmax按最后一维key位置得到A[2,4,4]；A@V→out[2,4,4] float32 | torch.softmax(masked_scores,dim=-1)返回同shape概率；@与V的时间轴对齐；forward返回out及weights供验证 | 每行和接近1，上三角未来位置为0，输出finite；它是每个query对可见value的加权和，非概率表直接等于输出 |
+| 4. 因果性和梯度验证 | 同一个模块和输入，复制X，改变最后一个token的向量，再做第二次前向；比较位置0..2的输出；对原输出标量loss反向 | detach().clone()独立副本，在no_grad下生成对照输入；torch.allclose按容差返回bool；可mean(out.square())作为标量，backward累积梯度；检查三投影参数grad存在有限 | 前三个位置不受未来token变化影响、权重上三角为0、概率行归一；无需要求最后一个输出必改变或全部梯度非零；核对结果而非形状/打印alone |
+
+主流程伪代码：“构造X及单头模块→三路投影→分数/缩放→上三角屏蔽→softmax→乘V→权重/因果与反向检查”。第一步先在模块中创建Q/K/V并确认三个输出shape，再补后续功能块。允许学生用函数组织、输出完整权重或打印检查结果；无需固定种子精确数值、整矩阵手算、额外模型/多头/性能/整套训练，也不假设位置编码已完成。参考Attention Is All You Need缩放点积与nanoGPT CausalSelfAttention思想，教学实现先自己写核心后再看作者源码；官方torch.masked_fill和softmax用于接口校对。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。

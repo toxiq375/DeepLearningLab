@@ -29,6 +29,7 @@
 | D09 | 梯度累积、梯度裁剪与AMP | 新课程，无历史迁移脚本 | [20_grad_accum_clip.py](d09/20_grad_accum_clip.py)；[21_amp.py](d09/21_amp.py) |
 | D10 | Shape、梯度与SGD更新检查 | 新课程，无历史迁移脚本 | [main.py](d10/main.py) |
 | E01–E02 | 字符编码、bigram与自回归采样 | 由 `lessons/d11/main.py` 迁至当前路径 | [main.py](e01/main.py) |
+| E03 | 三字符上下文、Embedding与MLP | 新课程，无历史迁移脚本 | [main.py](e03/main.py) |
 
 ## 运行与产物
 
