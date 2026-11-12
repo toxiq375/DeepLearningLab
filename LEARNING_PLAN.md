@@ -456,6 +456,19 @@ DeepLearningLab/
 
 主流程伪代码：“构造X及单头模块→三路投影→分数/缩放→上三角屏蔽→softmax→乘V→权重/因果与反向检查”。第一步先在模块中创建Q/K/V并确认三个输出shape，再补后续功能块。允许学生用函数组织、输出完整权重或打印检查结果；无需固定种子精确数值、整矩阵手算、额外模型/多头/性能/整套训练，也不假设位置编码已完成。参考Attention Is All You Need缩放点积与nanoGPT CausalSelfAttention思想，教学实现先自己写核心后再看作者源码；官方torch.masked_fill和softmax用于接口校对。
 
+**E07–E08 本轮组织（2026-11-11）**：以一个可堆叠的因果Transformer Block为完整主题，复用E04–E06学生的SingleHead，不再重写单头。输入X [B,T,C]=[2,4,8] float32 CPU，两个独立头各接收全部C特征并投影至d=4，分别输出[B,T,d]与权重[B,T,T]；沿特征维拼接并Linear(C,C)输出[B,T,C]。Pre-LN结构 u=X+MultiHead(LN1(X))，y=u+MLP(LN2(u))；MLP逐位置C→4C→C，非线性用GELU。多头负责从可见位置聚合信息，MLP逐位置处理特征；残差两边形状一致，LayerNorm按末特征维归一。因果mask不提供完整位置编码，Block不是完整GPT。
+
+**作业建议：`lessons/e07/main.py`**。保持自己编写核心组合逻辑；允许复制自己已验收的SingleHead，或以适当方式引用，无需强制重构原文件。模块形式可按个人习惯调整，以下为实现框架而非额外文件/测试数量要求：
+
+| 功能块 | 目的、输入输出与操作 | API使用与自查 |
+|---|---|---|
+| 复用两个头 | 两个独立SingleHead均接收[2,4,8]，分别返回[2,4,4]输出及[B,T,T]权重 | `nn.ModuleList(模块序列)`注册并可迭代模块，普通list不会自动注册；不能重复使用同一实例造成权重共享；取元组中的输出参与拼接 |
+| 合并和投影 | 沿特征轴拼接两个[B,T,4]得到[B,T,8]，再映射[B,T,8] | `torch.cat(tensors,dim=-1)`返回拼接Tensor；`nn.Linear(8,8)`作用于末轴并注册参数；其他轴不变 |
+| Pre-LN及MLP | LN1后多头，与原X相加得u；LN2(u)经8→32→8 MLP再与u相加，输出[2,4,8] | 两个 `nn.LayerNorm(8)` 按最后8维归一并有可学习参数；`nn.Linear`和`nn.GELU`逐位置处理特征；两条残差相加的Tensor形状相同 |
+| 验证 | CPU float32随机输入，输出同shape且有限；标量loss反向检查两头和MLP梯度存在有限；改变末token后比较此前输出 | backward累积梯度；`detach().clone()`产生独立对照副本，`torch.no_grad()`关闭比较阶段梯度记录，`torch.allclose`比较浮点输出；不要求末token输出必须改变或全部数值梯度非零 |
+
+主流程伪代码：构造输入→初始化两个独立头及Block→计算 LN1→多头聚合→第一条残差→LN2→MLP→第二条残差→检查shape/有限梯度→另改末token检查前面输出不变。第一步先复用头并完成并行输出、拼接和投影。无需Dropout、位置编码、tokenizer、训练或额外工程；后续再组完整GPT。对应nanoGPT Block的Pre-LN结构，其作者多头实现使用向量化QKV，本课用独立头便于理解。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。
