@@ -469,6 +469,17 @@ DeepLearningLab/
 
 主流程伪代码：构造输入→初始化两个独立头及Block→计算 LN1→多头聚合→第一条残差→LN2→MLP→第二条残差→检查shape/有限梯度→另改末token检查前面输出不变。第一步先复用头并完成并行输出、拼接和投影。无需Dropout、位置编码、tokenizer、训练或额外工程；后续再组完整GPT。对应nanoGPT Block的Pre-LN结构，其作者多头实现使用向量化QKV，本课用独立头便于理解。
 
+**E09–E10 本轮组织（2026-11-12）**：把学生E03字符映射/分段与E07因果Block组合成可训练的字符级GPT。建议 `lessons/e09/main.py`；CPU float32模型，输入/标签torch.long；复用原文 `hello world\n` 重复8次（96字符、V=9），按字符位置先分前72训练、后24验证，各自构造T=8的窗口和右移标签，得到[64,8]及[16,8]。相邻窗口高度重叠、语料重复，即使分段验证也不能证明真实泛化。字符词表从训练段构造并确认覆盖验证段。模型 token Embedding(9,16)+position Embedding(8,16)，一个或多个学生已实现Block（可取1层，2头各8维），末端LayerNorm(16)及Linear(16,9)输出[batch,8,9]原始logits；在每个位置预测下一个token。权重绑定、特殊初始化、生成和checkpoint不作为本课门槛。
+
+| 功能块/目的 | 输入输出、操作与关键API/自查 |
+|---|---|
+| 分段与错位样本 | 先分字符、训练段建词表并编码；长度L的段各取L−T个样本，输入字符i..i+7，标签i+1..i+8；`torch.tensor(...,dtype=torch.long)`得CPU IDs，核对首尾样本、x[:,1:]=y[:,:-1] |
+| 表示与Block | IDs [B,8]→token Embedding [B,8,16]；`torch.arange(T,device=idx.device)`为位置long [8]，position Embedding→[8,16]，加法按batch广播→[B,8,16]；复用Block输出同形。Embedding注册可学习表，输入为索引，输出为对应向量；位置与token都接收梯度 |
+| 词表输出与loss | 最终LayerNorm与Linear(16,9)得logits [B,8,9]；reshape为[B*8,9]，目标reshape为[B*8] long，`F.cross_entropy`接原始logits和合法目标ID，默认返回平均标量且内部计算log-softmax；不先softmax，不把时间与词表轴混淆 |
+| 训练和验证 | 一个CPU全批次短训练：seed42、AdamW lr=.01、weight_decay=0，建议200次更新；train模式前向、zero_grad、backward、step；记录初次及训练后的训练loss，eval/no_grad评估验证loss。检查梯度有限、loss有下降、数据错位与输出shape，验证集不参与step；未下降时调整学习率或步数并诚实记录 |
+
+主流程伪代码：按字符分语料→建立词表和错位窗口→构建token/position embeddings及复用Block→每个位置输出词表logits→展平并计算CE→短训练→eval/no_grad计算训练与验证loss。第一步核对训练/验证各自的首个错位窗口；函数化、层数和打印形式可自选。实验不要求固定数值、泛化质量、生成、下载数据或训练GPU。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。

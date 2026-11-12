@@ -31,6 +31,7 @@
 | E01–E02 | 字符编码、bigram与自回归采样 | 由 `lessons/d11/main.py` 迁至当前路径 | [main.py](e01/main.py) |
 | E03 | 三字符上下文、Embedding与MLP | 新课程，无历史迁移脚本 | [main.py](e03/main.py) |
 | E04–E06 | 单头因果自注意力 | 新课程，无历史迁移脚本 | [main.py](e04/main.py) |
+| E07–E08 | 多头注意力与 Transformer Block | 新课程，无历史迁移脚本 | [main.py](e07/main.py) |
 
 ## 运行与产物
 
