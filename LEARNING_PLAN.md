@@ -480,6 +480,18 @@ DeepLearningLab/
 
 主流程伪代码：按字符分语料→建立词表和错位窗口→构建token/position embeddings及复用Block→每个位置输出词表logits→展平并计算CE→短训练→eval/no_grad计算训练与验证loss。第一步核对训练/验证各自的首个错位窗口；函数化、层数和打印形式可自选。实验不要求固定数值、泛化质量、生成、下载数据或训练GPU。
 
+**E11–E12 本轮组织（2026-11-12）**：复用学生E09模型及已有 `generate` 草稿，建立训练后生成与保存/恢复推理的完整链条；建议放 `lessons/e11/`，输出路径由脚本目录定位至 `outputs/`。不重写已验收Block或训练工程。训练后将模型配置、state_dict、原训练词表及验证loss存入checkpoint；新模型按相同配置初始化并加载，在eval/no_grad下对同一输入比较logits；生成使用原映射、非空前缀和长度20的新ID。另由val mean CE计算exp(loss)作为本窗口评估困惑度，不解释为独立文本泛化。
+
+| 功能块 | 目的、输入输出、操作、API和自查 |
+|---|---|
+| 词表和上下文 | `prepare_data`当前只返回vocab_size，需使生成获得实际stoi/itos；前缀ID long CPU [1,L]，每次模型输入取最近最多8个，完整生成序列仍保留。检查decode/encode一致、所有ID合法 |
+| 逐token采样 | 在eval和 `torch.no_grad()` 下，输入[1,t]→logits[1,t,9]，只取最后时间位置[1,9]；除temperature>0后softmax(dim=-1)，`torch.multinomial(probs,num_samples=1)` 得long [1,1]，cat回完整序列并循环。输出长度=前缀+20；概率有限且归一；学生草稿缺失no_grad调用、编码词表参数、末位置选择及上下文裁剪 |
+| temperature/top-k | temperature较大使非相同logits的分布更平坦，较小使分布更集中；`torch.topk` 返回values和原词表indices [1,k]，可在values上softmax和抽样后用采样位置索引indices映射回词表ID；k允许None，指定k须在1..9，避免误将候选局部下标当原词表ID |
+| 保存恢复 | `torch.save` 保存包含model.state_dict、模型构造配置、字符表/词表、val loss等字典；`torch.load(...,map_location='cpu',weights_only=True)`恢复自有简单字典，重新创建同配置模型再load_state_dict。用同一个输入eval/no_grad比logits allclose；采样的文本一致还依赖随机状态，不能只凭文本判断参数恢复 |
+| 困惑度与结果 | 验证平均CE的exp为每token困惑度，注意重复且重叠窗口会重复统计字符位置，仅反映当前数据；不要求固定阈值或生成语义质量，不要求额外训练续训。`Path(__file__).resolve().parent/'outputs'` 定位产物、mkdir并保留.gitkeep |
+
+伪代码：训练现有GPT→保存参数/配置/词表→重建并加载→同输入logits比较→编码非空前缀→循环取最近8个/最后logits/温度和可选top-k/抽一个ID/追加→解码并检查长度；打印验证CE及其exp。先打通原训练词表访问和单步末位置采样，再补循环、截断和保存恢复。必做生成、恢复预测对照、困惑度；更复杂采样、优化、额外文件均可选。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。

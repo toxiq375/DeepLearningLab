@@ -32,6 +32,7 @@
 | E03 | 三字符上下文、Embedding与MLP | 新课程，无历史迁移脚本 | [main.py](e03/main.py) |
 | E04–E06 | 单头因果自注意力 | 新课程，无历史迁移脚本 | [main.py](e04/main.py) |
 | E07–E08 | 多头注意力与 Transformer Block | 新课程，无历史迁移脚本 | [main.py](e07/main.py) |
+| E09–E10 | 训练字符级小 GPT | 新课程，无历史迁移脚本 | [e09/](e09/)：`config.py`、`data.py`、`model.py`、`main.py` |
 
 ## 运行与产物
 

@@ -4,3 +4,10 @@
 
 *.pyc
 *.pyo
+
+data/
+dataset/
+__pycache__/
+output/
+outputs/
+

@@ -18,7 +18,7 @@ def prepare_data():
     X_train, Y_train = make_windows(train_ids, CONTEXT_SIZE)
     X_val, Y_val = make_windows(val_ids, CONTEXT_SIZE)
 
-    return X_train, Y_train, X_val, Y_val, vocab_size
+    return X_train, Y_train, X_val, Y_val, vocab_size, stoi, itos
 
 def encode(stoi, s):
     return [stoi[ch] for ch in s]
