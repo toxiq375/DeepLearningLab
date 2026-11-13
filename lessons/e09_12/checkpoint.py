@@ -2,7 +2,7 @@ import torch
 from pathlib import Path
 from model import miniGPT
 
-def save_checkpoint(model, model_config, itos, val_loss, path):
+def save_checkpoint(model, model_config, itos, val_loss, val_PPL, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -10,7 +10,8 @@ def save_checkpoint(model, model_config, itos, val_loss, path):
         "model_state_dict": model.state_dict(),
         "model_config": model_config,
         "chars": [itos[i] for i in range(len(itos))],
-        "val_loss": float(val_loss)
+        "val_loss": float(val_loss),
+        "val_PPL": float(val_PPL)
     }
 
     torch.save(checkpoint, path)

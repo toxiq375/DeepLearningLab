@@ -492,6 +492,17 @@ DeepLearningLab/
 
 伪代码：训练现有GPT→保存参数/配置/词表→重建并加载→同输入logits比较→编码非空前缀→循环取最近8个/最后logits/温度和可选top-k/抽一个ID/追加→解码并检查长度；打印验证CE及其exp。先打通原训练词表访问和单步末位置采样，再补循环、截断和保存恢复。必做生成、恢复预测对照、困惑度；更复杂采样、优化、额外文件均可选。
 
+**E13 本轮组织（2026-11-13）**：对照nanoGPT源码理解已亲手实现的小GPT，按数据→模型→loss/optimizer→保存/采样追踪，不要求克隆、下载数据、运行完整作者训练或做DDP。当前本地 `nanoGPT/` 为空，可读官方GitHub源码。学生实际代码已整合到 `lessons/e09_12/`；E11–E12仅基础生成及保存恢复范围通过，温度/top-k/perplexity待补，不升级为已实践。
+
+| 功能块/目的 | 输入输出、操作和核查 |
+|---|---|
+| 源码数据与词表 | 上游 `data/shakespeare_char/prepare.py` 字符到ID，`train.py:get_batch` 随机切输入和右移目标 [B,T] long；对照学生data.py预先构造所有窗口，指出具体相同的标签错位及选择窗口方式差异 |
+| GPT数据流 | `model.py:GPT.forward` 的ID [B,T]→token/position embeddings [B,T,C]→Block→lm_head [B,T,V]→有targets时CE；训练时输出所有位置、无targets推理优化只输出最后位置。对照学生始终输出所有位置；Block Pre-LN/残差相同，作者多个heads合并QKV向量化，学生独立头 |
+| 训练与生成 | `train.py` 的loss/backward/optimizer、checkpoint及 `sample.py`→`GPT.generate` 输入/输出；对照学生main.py/checkpoint.py/inference.py的实际范围，说明因果裁剪/逐步回馈，不要求读所有工程优化 |
+| 一项小代码对照 | 建议 `lessons/e13/` 内学生手写小脚本或观察：复用E09_12 SingleHead，在CPU float32 X[2,4,16]上使用该头自己的Q/K/V投影各[2,4,8]，比较学生头输出与 `torch.nn.functional.scaled_dot_product_attention(q,k,v,is_causal=True,dropout_p=0.0)` 输出；两者都[2,4,8]，`torch.allclose` 容忍浮点误差。dropout_p=0用于确定性比较，沿key轴因果屏蔽。不得用独立随机QKV或不同头参数误比；非重写整套模型 |
+
+伪代码：查看作者prepare/get_batch和GPT.forward→对照本人的数据/模型/训练/生成入口及shape→固定输入调用学生单头→以该单头投影得Q/K/V→调用官方因果注意力→观察最大绝对差/是否allclose。可用简单对照表记录，先定位数据窗口和GPT.forward。实现必须学生编写；不强制指定文件数量、完整论文/大规模训练；不把作者实现误当作学生完成的算法。
+
 ### P-E：mini-GPT 必须满足的验收要求
 
 - 自己设计一个**与参考 nanoGPT 源码不逐行照抄**的小型项目。
