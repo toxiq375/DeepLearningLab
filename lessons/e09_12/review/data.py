@@ -10,7 +10,7 @@ def prepare_data(): # prepare the input data
     chars = sorted(set(train_text)) # use set() to extract the chars in the text,then use sorted to sort them
     vocab_size = len(chars) # vocab_size is the numbers of the chars in the text
     stoi = {ch:i for i, ch in enumerate(chars)} # stoi: trun char into code number
-    itos = {i:ch for i, ch in stoi.items()} # .items() returns the pairs in the dictionary
+    itos = {i:ch for ch, i in stoi.items()} # .items() returns the pairs in the dictionary
 
     train_ids = torch.tensor(encode(stoi, train_text), dtype=torch.long)
     # train_ids is code_number form of train_text data
@@ -36,9 +36,11 @@ def decode(itos, code_numbers):
 def make_windows(code_numbers, context_size):
     X = []
     Y = []
-    for i in range(len(code_numbers)):
-        X.append(code_numbers[i:i-(context_size+1-1)])
-        Y.append(code_numbers[i+1:i-(context_size+1-1)+1])
+    for i in range(len(code_numbers)-(context_size+1-1)):
+        # if context_size = l, prediction size = m, then the range should be range(len() - (context_size + m -1))
+        # here m = 1
+        X.append(code_numbers[i:i+context_size])
+        Y.append(code_numbers[i+1:i+context_size+1])
         # model takes a sequence of the training_data and predict the next one
         # each code of the training_sequence predicts the next code, so that the model can be trained with multiple codes at once
         # the sequence has the length of context_size

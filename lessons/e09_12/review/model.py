@@ -37,11 +37,12 @@ class SingleHead(nn.Module):
 class MultiHead(nn.Module):
     def __init__(self, input_channels, attn_channels, output_channels, num_heads):
         super().__init__()
-        self.heads = nn.ModuleList(SingleHead(input_channels, attn_channels) for _ in range(num_heads))
+        self.heads = nn.ModuleList([SingleHead(input_channels, attn_channels) for _ in range(num_heads)])
         self.proj = nn.Linear(num_heads*attn_channels, output_channels)
 
     def forward(self, x):
-        outputs = [head(x) for head in self.heads()]
+        outputs = [head(x) for head in self.heads]
+        # Dont use self.heads(), ModuleList is Not a Function ! So u cant call it
         outputs = torch.cat(outputs, dim=-1)
         # torch.cat() takes a list of SingleHead's output, its shape is [B,T,d_attn], and it plus the last dim, namely the d_attn 
         outputs = self.proj(outputs)
@@ -83,8 +84,9 @@ class miniGPT(nn.Module):
         self.pos_embedding = nn.Embedding(context_size, embed_dim)
         # nn.Embedding dont takes input, it creates a embedding table, its shape is (size, embedding_dims)
         self.attn_block = TransformerBlock(input_channels, attn_channels, output_channels, num_heads)
+        # Here we make the dim of the embed_dim and the input_channels of the attn. If Not, we need to add a new projection head to project the embed_dim into attention's input_channels
         self.layernorm = nn.LayerNorm(output_channels)
-        self.linear_head = nn.Linear(output_channels)
+        self.linear_head = nn.Linear(output_channels, vocab_size)
 
     def forward(self, x):
         token_embeddings = self.token_embedding(x)
