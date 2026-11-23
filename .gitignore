@@ -5,6 +5,8 @@
 *.png
 *.jpg
 *.gif
+*.bin
+*.pkl
 
 *.pyc
 *.pyo

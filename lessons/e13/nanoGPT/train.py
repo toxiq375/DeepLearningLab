@@ -33,21 +33,23 @@ from model import GPTConfig, GPT
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out'
-eval_interval = 2000
+eval_interval = 2000 # Evaluate the model after each 2000 training iterations, Not Epoch
 log_interval = 1
-eval_iters = 200
+eval_iters = 200 # When Eval, extract 200 batches from the training dataset and the val set
 eval_only = False # if True, script exits right after the first eval
-always_save_checkpoint = True # if True, always save a checkpoint after each eval
+always_save_checkpoint = True # if True, always save a checkpoint after each eval. If False, only save the checkpoint when the eval loss is the best one(or better than the former one)
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
+# WandB means "Weight&Biases", A Visualization Tool of machine learning
 wandb_log = False # disabled by default
-wandb_project = 'owt'
+wandb_project = 'owt' # wdb project name
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 # data
 dataset = 'openwebtext'
-gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
-batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 1024
+gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes. Given the batch_size of 12, it is 40 * 12 = 480 batches.
+# So it means the optimizer will update the gradient every 40 iterations, totally 480 batches 
+batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size. Every epoch inputs 12 sequences into the forward
+block_size = 1024 # i.e. context length, means each sequence contains 1024 tokens
 # model
 n_layer = 12
 n_head = 12
