@@ -39,49 +39,74 @@ eval_iters = 200 # When Eval, extract 200 batches from the training dataset and 
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval. If False, only save the checkpoint when the eval loss is the best one(or better than the former one)
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
+
 # wandb logging
 # WandB means "Weight&Biases", A Visualization Tool of machine learning
 wandb_log = False # disabled by default
 wandb_project = 'owt' # wdb project name
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
+
 # data
 dataset = 'openwebtext'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes. Given the batch_size of 12, it is 40 * 12 = 480 batches.
 # So it means the optimizer will update the gradient every 40 iterations, totally 480 batches 
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size. Every epoch inputs 12 sequences into the forward
 block_size = 1024 # i.e. context length, means each sequence contains 1024 tokens
+
 # model
-n_layer = 12
-n_head = 12
-n_embd = 768
+n_layer = 12 # The number of TransformerBlock, which means that the model has 12 Transformerblocks
+n_head = 12 # Each MHA has 12 attention heads
+n_embd = 768 # Embedding shapes, each token will be embedded into 768 dims
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
+
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
 weight_decay = 1e-1
+# Review of the weight decay
+# When using it, each time the optimizer updates the model's weight, the weight will times a num that less than 1, decreasing the model's weight
+# i.e. \theta_{t+1} = (1-\lambda\times\eta)\theta_t - \eta \times gradient
 beta1 = 0.9
-beta2 = 0.95
+beta2 = 0.95 # beta1 and beta2 of the AdamW optimizer
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
+# Clip the grad's L2-norm to the maxium of 1
+
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
 warmup_iters = 2000 # how many steps to warm up for
+# At the beginning of the training, the gradient is randomly initialized, so we need to slowly increase the learning rate of the model,  avoiding the fluctuation of the training
+# nanoGPT uses the Linear Warmup + Cosine Decay, which means that the learning rate will increase at Warmup period, and then cosine annealing after warmup(annealing means decay)
 lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
+# DDP means Distributed Data Parallel, which allows the model to be trained on multiple GPUs
+# nccl is normally used for nvidia GPU communications 
+
 # system
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+# globals.() is the built-in function of Python, which can return a dictionary of global variables
+# For example, globals()["learning_rate"] = 6e-4, and we can modify the learning_rate by using globals()["learning_rate"] = 
+# .items() returns the pair of the key and the value, the config_keys only collect the keys and avoids the keys start with _, and its values' type must be one of the (int, float, bool, str)
 exec(open('configurator.py').read()) # overrides from command line or config file
+# open() will open the given file, which is the Python program here. .read() will get the string of the file
+# exec() means execute the Python code inside the read string, which will defines some other parameters in the configuration Python programs, and may cover some defined parameters
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
+# Should be used after exec(), cause exec() may cover some configs parameters
 # -----------------------------------------------------------------------------
 
+# Since I just use 1 GPU, I'll just pass the part of the ddp code :P
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
+# If there is no environment variable RANK, os.environ.get('RANK', -1) will gets string "0"
+# dict.get(key, default), if key exists, return its value, else, return default value
+# For a single GPU environment, there is usually no RANK variable, so os.environ.get('RANK', -1) returns -1, and then ddp = False
 if ddp:
     init_process_group(backend=backend)
     ddp_rank = int(os.environ['RANK'])
@@ -100,49 +125,67 @@ else:
     master_process = True
     seed_offset = 0
     ddp_world_size = 1
-tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
+    # Above code means that the program will see the current process as the only training process
+
+tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size # 40 * 1 * 12 * 1024 Tokens / 1 training iteration
 print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
-if master_process:
-    os.makedirs(out_dir, exist_ok=True)
+if master_process: # Single GPU, master_process = True
+    os.makedirs(out_dir, exist_ok=True) # Create the directory
 torch.manual_seed(1337 + seed_offset)
-torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
+torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul, i.e. aloow CUDA to use TensorFloat-32 computational mode to accelerate some FP32 matrix computation
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
-device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
+device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast, check if the device string has "cuda" string part
 # note: float16 data type will automatically use a GradScaler
-ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype] # Create a dictionary to search the actual dtype of string "dtype"
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+# nullcontext() is a manager from Python contextlib, which means operate nothing when enter or quit
+# torch.amp.autocast() will mix the precision automatically
+# We can see the code as a pre-prepared environment for AMP, for exmaple, with ctx: , the code after it will use AMP
 
 # poor man's data loader
-data_dir = os.path.join('data', dataset)
+data_dir = os.path.join('data', dataset) # Join the data path, like "/" in the Path module
 def get_batch(split):
+    # The function is defined to take the split mode, and create a batch of data(12 seqs) from the respective data. It goes like below:
+    # 1st, we need to confirm which set of data we need to create its batch
+    # 2nd, since we need 12 seqs in 1 batch, we need to get their repective start index
+    # 3rd, after getting the starts, slice them at the length of token_size(1024 here) from the data
+    # 4th, type deformation, then stack them into the shape of [B, T]
+    # 5th, move them to the repective device, which is defined globally above
+    # 6th, return them
+
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
-        data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
+        data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r') # Map the training data from disk to RAM
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
     ix = torch.randint(len(data) - block_size, (batch_size,))
+    # torch.randint(high, size), randomly extract integers from range[0, high), at the size of size
+    # Batch size is 12, so we will extract 12 intergers from the range of range(0, len(data) - block_size), as the starting index of each sequence
     x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
+    # When read from train.bin file, dtype = np.uint16, we need to turn it into np.int64 to align on torch.long, i.e. int64
+    # Remember to turn the Numpy to Tensor with torch.from_numpy()
+    # Shape: [1024] -> stack -> [12, 1024]
     y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
+        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True) # Acceleration, Pined Memory
     else:
         x, y = x.to(device), y.to(device)
-    return x, y
+    return x, y # The function returns the training batch data x, and the target batch data y, y = x+1
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
 
-# attempt to derive vocab_size from the dataset
-meta_path = os.path.join(data_dir, 'meta.pkl')
-meta_vocab_size = None
+# attempt to derive vocab_size from the dataset, i.e. meta data, meta.pkl here
+meta_path = os.path.join(data_dir, 'meta.pkl') # data_dir is now a global variable
+meta_vocab_size = None # Initialize the meta_vocab_size as None, cause we may not find meta.pkl
 if os.path.exists(meta_path):
-    with open(meta_path, 'rb') as f:
+    with open(meta_path, 'rb') as f: # Open the meta_data as f in binary, cause it is stored in binary
         meta = pickle.load(f)
-    meta_vocab_size = meta['vocab_size']
+    meta_vocab_size = meta['vocab_size'] # meta.pkl is a binary file that stores vocab_size, stoi, itos in the dictionary form
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
