@@ -1,18 +1,22 @@
-*.zip
-*.pt
-*.pth
+*.[zZ][iI][pP]
+*.[tT][aA][rR]
+*.[gG][zZ]
+*.[pP][tT]
+*.[pP][tT][hH]
 
-*.png
-*.jpg
-*.gif
-*.bin
-*.pkl
+*.[pP][nN][gG]
+*.[jJ][pP][gG]
+*.[gG][iI][fF]
+*.[bB][iI][nN]
+*.[pP][kK][lL]
+*.[tT][xX][tT]
+*.[jJ][sS][oO][nN]
 
 *.pyc
 *.pyo
 
-data/
-dataset/
+# data/
+# dataset/
 __pycache__/
 output/
 outputs/
