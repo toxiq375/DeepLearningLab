@@ -218,35 +218,60 @@ elif init_from == 'resume':
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
-    unwanted_prefix = '_orig_mod.'
-    for k,v in list(state_dict.items()):
+    unwanted_prefix = '_orig_mod.' # Somehow when using torch.compile(), there will be a strange prefix "_orig_mod."
+    for k,v in list(state_dict.items()): # Use .items() to unpack the dictionary of state_dict
         if k.startswith(unwanted_prefix):
-            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-    model.load_state_dict(state_dict)
+            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k) # Slice the key's to recover its name
+            # .pop() will remove the given key and return its value, so the process above is to create a new correct key, and assign the right value to the new key, then kill the wrong key name
+    model.load_state_dict(state_dict) # Load the trained weights
     iter_num = checkpoint['iter_num']
     best_val_loss = checkpoint['best_val_loss']
 elif init_from.startswith('gpt2'):
     print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
     # initialize from OpenAI GPT-2 weights
-    override_args = dict(dropout=dropout)
+    override_args = dict(dropout=dropout) # When load from gpt2, most of the parameters have to align on the given model, except dropout
     model = GPT.from_pretrained(init_from, override_args)
+    # .from pretrained is a method defined in the GPT Class
     # read off the created config params, so we can store them into checkpoint correctly
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = getattr(model.config, k)
+        # getattr() is a built-in function of Python, getattr(model.config, n_layer) equals model.config.n_layers, it's a function that can get object's attributes
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
-    model.crop_block_size(block_size)
+    model.crop_block_size(block_size) # .crop_block_size is a method defined in the GPT Class
     model_args['block_size'] = block_size # so that the checkpoint will have the right value
 model.to(device)
+# Let's discuss the difference between the last two loading formats above:
+# In the resume mode, the checkpoint_model_args is a dictionary, so we can use checkpoint_model_args[k] to index its value
+# In the gpt2 mode, model.config is an instance in the Class GPTConfig, and the initialization function in the GPT Class will takes a config to initialize the GPT model
+# To access its attributes, we need to use model.config.n_layers instead of using model.config["n_layers"]
+# In the for loop, k is a Python string like 'n_layers'. But if u write 'model.config.k', it will search the attribute named 'k' instead of 'n_layers',so we must use getattr(model.config, k)
+# Btw, look at the model_args of the gpt2 mode, it is not used for initializing the model. We assign it because we need it to save the checkpoint
+# Why we use GPT.from_pretrained(), and use model.crop_block_size?
+# 1st, we can use GPT.crop_block_size(), but we must give it model, like GPT.crop_block_size(model, block_size)
+# 2nd, .from_pretrained has a Python decorator of '@classmethod', so it's a class method, it will automatically pass in the class parameter into the function
+# Why we can use model.config.k, is because model is the instance of the Class GPT, to call its attributes, we need to use '.'. Inside the GPT Class, there shall be a code like'self.config = config', it takes a config and make it model's attribute, that is the source of model.config calling
+# Likewise, the config we passed in is also a Class defined in the respective code, so we need to use config.n_layer to call its own attributes
+# And because the Class GPTConfig use the @dataclass decorator, it doesn't need to use 'self.' to name its attributes
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+# scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+# Review of the Gradscaler: Using FP16 at training may lead some some gradients to 0 because the limitation of FP16, so before backward, enlarge the loss and then backward, so that the gradient caculated will be larger too. Then reduce the gradient
+# enavled parameter means when dtype = float16, using Gradscaler, otherwise there is no need to use it 
+scaler = torch.amp.GradScaler(
+    "cuda",
+    enabled=(dtype=='float16')
+) # Let's use the new API in PyTorch 2.10
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type) # Create the optimizer, its an instance method defined in the Class GPT
+# Why dont we use the AdamW directly? Because we hope to use different strategy on different parameters according to its dimensions, it determines whether to use weight_decay or not
+# Reviews of weight_decay: continously decrease the model's weight during training. When param.dim() >= 2, use it. Otherwise do not use it.
 if init_from == 'resume':
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    optimizer.load_state_dict(checkpoint['optimizer']) 
+    # The optimizer is also updating during training, and its states keeps changing. So we need to recover the optimizer's state too.
 checkpoint = None # free up memory
+# The checkpoint previously save a dictionary which saves a mount of Tensor, release it
 
 # compile the model
 if compile:
@@ -267,11 +292,11 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split)
-            with ctx:
+            with ctx: # Which is defined above. When CPU, ctx = nullcontext(), execute nothing. When GPU, ctx = torch.amp.autocast(device_type = device_type, dtype=dtype)
                 logits, loss = model(X, Y)
-            losses[k] = loss.item()
+            losses[k] = loss.item() # .item() turns a Tensor into Python value, while .items() unpacks/returns key-value pairs in a dictionary
         out[split] = losses.mean()
-    model.train()
+    model.train() # Remember to turn on the train mode of the model
     return out
 
 # learning rate decay scheduler (cosine with warmup)
