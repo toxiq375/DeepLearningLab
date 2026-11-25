@@ -297,10 +297,10 @@ def estimate_loss():
             losses[k] = loss.item() # .item() turns a Tensor into Python value, while .items() unpacks/returns key-value pairs in a dictionary
         out[split] = losses.mean()
     model.train() # Remember to turn on the train mode of the model
-    return out
+    return out # out comtains training losses and evaluation losses
 
 # learning rate decay scheduler (cosine with warmup)
-def get_lr(it):
+def get_lr(it): # nanoGPT uses Linear Warmup + Cosine Decay + Minimum LR
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
         return learning_rate * (it + 1) / (warmup_iters + 1)
@@ -314,13 +314,13 @@ def get_lr(it):
     return min_lr + coeff * (learning_rate - min_lr)
 
 # logging
-if wandb_log and master_process:
-    import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+if wandb_log and master_process: # When using single GPU, master_process = True, it is used to judge whether use multiple GPUs.
+    import wandb # Using Weights & Bias, btw the 'import' code is written inside the if code, so that is wandb_log = False, it won't be created at first
+    wandb.init(project=wandb_project, name=wandb_run_name, config=config) # () projetc_name, experiment_name, configs(the hyperparameters of the experiments, like lr, batch_size etc.)
 
 # training loop
-X, Y = get_batch('train') # fetch the very first batch
-t0 = time.time()
+X, Y = get_batch('train') # fetch the very first batch, randomly sampled from the training dataset
+t0 = time.time() # The built-in function of the Python, which can caculate the time consumption
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
@@ -342,10 +342,10 @@ while True:
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
-            })
+            }) # wandb.log() will takes a dictionary and record it
         if losses['val'] < best_val_loss or always_save_checkpoint:
-            best_val_loss = losses['val']
-            if iter_num > 0:
+            best_val_loss = losses['val'] # The code actually saves the most recent evaluation loss instead of saving the best(lowest) eval loss
+            if iter_num > 0: # Avoid saving randomly initialized model 
                 checkpoint = {
                     'model': raw_model.state_dict(),
                     'optimizer': optimizer.state_dict(),
@@ -368,31 +368,31 @@ while True:
             # I really dislike that this bloats the code and forces us to repeat code
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
-        with ctx:
+        with ctx: # torch.amp.autocast()
             logits, loss = model(X, Y)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
-        scaler.scale(loss).backward()
+        scaler.scale(loss).backward() # This step will enlarge the loss
     # clip the gradient
     if grad_clip != 0.0:
-        scaler.unscale_(optimizer)
+        scaler.unscale_(optimizer) # Reduce the loss, and we want to clip the real gradient, so put unscale code ahead of the clip code
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     # step the optimizer and scaler if training in fp16
-    scaler.step(optimizer)
+    scaler.step(optimizer) # Check if there are inf or NaN gradient, if there are, skip current update
     scaler.update()
     # flush the gradients as soon as we can, no need for this memory anymore
-    optimizer.zero_grad(set_to_none=True)
+    optimizer.zero_grad(set_to_none=True) # set_to_None will set the grad to None instead of zero, which will release the RAM usage
 
     # timing and logging
     t1 = time.time()
-    dt = t1 - t0
+    dt = t1 - t0 # Caculate the time cost
     t0 = t1
     if iter_num % log_interval == 0 and master_process:
         # get loss as float. note: this is a CPU-GPU sync point
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
-        lossf = loss.item() * gradient_accumulation_steps
+        lossf = loss.item() * gradient_accumulation_steps # It's not the avg Loss
         if local_iter_num >= 5: # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
