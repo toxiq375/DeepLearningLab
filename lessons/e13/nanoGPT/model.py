@@ -20,11 +20,12 @@ class LayerNorm(nn.Module):
 
     def __init__(self, ndim, bias):
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(ndim))
+        self.weight = nn.Parameter(torch.ones(ndim)) # torch.ones will initialize a Tensor at the length of ndim with its values are all 1
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
 
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+    # F.layer_norm takes 5 parameters: (input, normalized_shape, weight, bias, eps), for normalized_shape, if we pass in (10, 768) (assume that the shape of input is [2, 10, 768]), layer_norm's caculation(E, Var, etc.) will be used on the last 2 dim, that is 10*768
 
 class CausalSelfAttention(nn.Module):
 
@@ -32,7 +33,7 @@ class CausalSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias) # Define the layer to get QKV at one time
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
@@ -42,19 +43,19 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention') # hasattr(object, 'name'), check if there is a function named 'name' in the object
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
-            self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
-                                        .view(1, 1, config.block_size, config.block_size))
+            self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size)) # torch.tril() will keep the lower triangular matrix
+                                        .view(1, 1, config.block_size, config.block_size)) # making it to dimension of 4 to align on the attention scores matrix
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2) # .split(split_size, dim) slice the tensor every spilt_size at dim=2, the tensor's shape is [B, T, 3*n_embd]
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs): Batch size, Num heads, Token size, Dimension of each head
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
@@ -66,13 +67,16 @@ class CausalSelfAttention(nn.Module):
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+            # self.bias has been registered as register_buffer above, its size is [1, 1, block_size, block_size], and only the lower triangular matrix is 1, others are zero
+            # Because T may less than block_size, so we only keep the the top-left TxT area in the bias tril matrix
+            # Then mask the 0 values's position as -inf
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
-        y = self.resid_dropout(self.c_proj(y))
+        y = self.resid_dropout(self.c_proj(y)) # self.resid_dropout() takes the parameters with a shape of [B,T,C], it will randomly zero some values inside the channels with the given probability
         return y
 
 class MLP(nn.Module):
@@ -101,12 +105,15 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(self.ln_1(x)) # Layernorm then residual addition
         x = x + self.mlp(self.ln_2(x))
         return x
 
 @dataclass
+# @dataclass is a data decorator after Python 3.7, with this decorator, we dont have to define "self.xxx = " to initialize the attributes in the Class
+# Just use config = GPTConfig() to instaniate an GPTConfig instance
 class GPTConfig:
+    # Format: parameter_name: dtype = value
     block_size: int = 1024
     vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
     n_layer: int = 12
@@ -124,21 +131,25 @@ class GPT(nn.Module):
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            wpe = nn.Embedding(config.block_size, config.n_embd),
+            wte = nn.Embedding(config.vocab_size, config.n_embd), # wte: Word Token Embedding, its shape is [vocab_size, n_embed]
+            wpe = nn.Embedding(config.block_size, config.n_embd), # wpe: Word Position Embedding, its shape is [block_size, n_embed]
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = LayerNorm(config.n_embd, bias=config.bias),
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]), # Hidden blocks: stack n_layers transformer blocks, must use nn.ModuleList() so that PyTorch can identify them and update them
+            ln_f = LayerNorm(config.n_embd, bias=config.bias), # To stableize the output features before the final outputs
         ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        # Use nn.ModuleDict(dict()) to initialize a PyTorch dictionary
+        # We can use self.transformer.wte or self.transformer['wte'] to access the submodules
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # Language Model Head: a Linear layer without bias, project 768 hidden dim into vocab_size
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        # wte will project vocab_size into embed_dim, and lm_head will project embed_dim into vocab_size, they are reverse process
 
         # init all weights
         self.apply(self._init_weights)
+        # self.apply(fn): this will use fn on all submodules in the model automatically
         # apply special scaled init to the residual projections, per GPT-2 paper
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
