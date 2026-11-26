@@ -68,7 +68,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             # self.bias has been registered as register_buffer above, its size is [1, 1, block_size, block_size], and only the lower triangular matrix is 1, others are zero
-            # Because T may less than block_size, so we only keep the the top-left TxT area in the bias tril matrix
+            # Because T may less than block_size, e.g. inference, so we only keep the the top-left TxT area in the bias tril matrix
             # Then mask the 0 values's position as -inf
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -165,14 +165,18 @@ class GPT(nn.Module):
         The token embeddings would too, except due to the parameter sharing these
         params are actually used as weights in the final layer, so we include them.
         """
-        n_params = sum(p.numel() for p in self.parameters())
+        n_params = sum(p.numel() for p in self.parameters()) # p.numel: Number of Elements, it's a built-in method of PyTorch, caculating the whole number of elements
         if non_embedding:
             n_params -= self.transformer.wpe.weight.numel()
+            # Only minus wpe's numel because wte's weight is binded with lm_head
         return n_params
 
     def _init_weights(self, module):
+    # _function_name is the agreement of Python, means the function is a Private Helper, which means the function shall be called inside the Class
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # The methods whose name endwith '_' are In-place Operation, which directly change the given parameters itself
+            # normal_ will filled the weight matrix with random value of Gaussian distribution with mean of 0.0 and std of 0.02 
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
@@ -180,7 +184,8 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         device = idx.device
-        b, t = idx.size()
+        b, t = idx.size() # The token size shall be less than block size, i.e. context size
+        # I guess idx shall be the code number encoded with encoder
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
@@ -196,9 +201,10 @@ class GPT(nn.Module):
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            # F.cross_entropy takes in (logits, targets, ignore_index), while logits size shall be [B*T, vocab_size], targets size shall be [B*T], ignore_index = -1 means if the padding positions' indices are -1, ignore them, avoiding using them to caculate the loss
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim, i.e. token size
             loss = None
 
         return logits, loss
@@ -210,11 +216,16 @@ class GPT(nn.Module):
         assert block_size <= self.config.block_size
         self.config.block_size = block_size
         self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
+        # If we slice a nn.Parameter object, it will only returns a PyTorch Tensor object, so we need to repack it into nn.Parameter
         for block in self.transformer.h:
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+                # bias is reigistered_buffer not nn.Parameter, so we dont need to repack it into nn.Parameter
+                # Why we still need to slice the bias though there is already [:, :, :T, :T] process above?
+                # Because we still need to save the state_dict of the model, assume that the saving model state_dict has a block_size of 1024, when we load_state_dict and initialize it with a block_size of 256, it will raise RuntimeError: size mismatch
 
     @classmethod
+    # Python Class decorator, we dont need to instentiate Class to use the method, we could directly use 'model = GPT.from_pretrained() to call the function'
     def from_pretrained(cls, model_type, override_args=None):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
         override_args = override_args or {} # default to empty dict
@@ -244,6 +255,7 @@ class GPT(nn.Module):
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
+        # attn.bias is just a constant buffer
 
         # init a huggingface/transformers model
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
@@ -261,8 +273,10 @@ class GPT(nn.Module):
             if any(k.endswith(w) for w in transposed):
                 # special treatment for the Conv1D weights we need to transpose
                 assert sd_hf[k].shape[::-1] == sd[k].shape
+                # Attribute shape is a tuple, like(768, 2304), shape[::-1] will reserve the tuple, e.g. (2304, 768)
                 with torch.no_grad():
-                    sd[k].copy_(sd_hf[k].t())
+                    sd[k].copy_(sd_hf[k].t()) # .t() will transpose the 2 dimensional Tensor
+                    # If we use .copy_, it will override the given parameter, not redirect it 
             else:
                 # vanilla copy over the other parameters
                 assert sd_hf[k].shape == sd[k].shape
@@ -279,11 +293,13 @@ class GPT(nn.Module):
         # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
         decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        # linear layers' weight matrix, wte, wpe, etc.
         nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        # linear layers' bias, layernorms' gamma's weight & bias
         optim_groups = [
             {'params': decay_params, 'weight_decay': weight_decay},
             {'params': nodecay_params, 'weight_decay': 0.0}
-        ]
+        ] # PyTorch optimizers support passing in a list of dictionaries, each dictionary consists of its params & hyperparams, e.g. weight_decay
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
@@ -314,6 +330,7 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
+    # The same effect of 'with torch.no_grad():'
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
@@ -323,13 +340,14 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            # I guess the input idx's shape is [B,T], which is a batch of token_id
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
+            logits = logits[:, -1, :] / temperature # The very last logits
             # optionally crop the logits to only the top k options
             if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1))) # Return values, indices. Avoiding the situation that top_k is less than vocab_size
                 logits[logits < v[:, [-1]]] = -float('Inf')
             # apply softmax to convert logits to (normalized) probabilities
             probs = F.softmax(logits, dim=-1)
@@ -337,5 +355,10 @@ class GPT(nn.Module):
             idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
+
+            # The size change of the logits
+            # When inference, entering the else branch of the forward function, the model will only forward the very last logits, see 'logits = self.lm_head(x[:, [-1], :])', now the size is [B, 1, vocab_size]
+            # After 'logits = logits[:, -1, :]', '-1' will remove the middle dimension of the logits, now the size is [B, vocab_size]
+            # top_k caculates on the last dimension of the given parameter by default, so after top_k caculation, the logits' size is [B,vocab_size], and the values less than smallest top_k value will be overrided as float("-Inf")
 
         return idx
