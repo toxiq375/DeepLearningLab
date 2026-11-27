@@ -42,7 +42,7 @@ if init_from == 'resume':
     unwanted_prefix = '_orig_mod.'
     for k,v in list(state_dict.items()):
         if k.startswith(unwanted_prefix):
-            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k) # .pop() removes the old key 'k' then returns its respective value
     model.load_state_dict(state_dict)
 elif init_from.startswith('gpt2'):
     # init from a given GPT-2 model
@@ -66,6 +66,7 @@ if load_meta:
     stoi, itos = meta['stoi'], meta['itos']
     encode = lambda s: [stoi[c] for c in s]
     decode = lambda l: ''.join([itos[i] for i in l])
+    # function creation, lambda (passin parameter): return parameter
 else:
     # ok let's assume gpt-2 encodings by default
     print("No meta.pkl found, assuming GPT-2 encodings...")
@@ -74,16 +75,16 @@ else:
     decode = lambda l: enc.decode(l)
 
 # encode the beginning of the prompt
-if start.startswith('FILE:'):
-    with open(start[5:], 'r', encoding='utf-8') as f:
+if start.startswith('FILE:'): # e.g. 'FILE:prompt.txt'
+    with open(start[5:], 'r', encoding='utf-8') as f: # start[5:] : do not use the 'FILE:' prefix
         start = f.read()
 start_ids = encode(start)
-x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
+x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]) # Add the batch dimension and turn it into torch Tensor
 
 # run generation
 with torch.no_grad():
-    with ctx:
-        for k in range(num_samples):
+    with ctx: # torch.amp.autocast() if 'cuda'
+        for k in range(num_samples): # num_samples: how many loops do we need to generate
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-            print(decode(y[0].tolist()))
+            print(decode(y[0].tolist())) 
             print('---------------')

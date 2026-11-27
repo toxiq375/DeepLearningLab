@@ -74,6 +74,7 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        # Just use .contiguous() to make sure that the Tensor in RAM is constantly restored
 
         # output projection
         y = self.resid_dropout(self.c_proj(y)) # self.resid_dropout() takes the parameters with a shape of [B,T,C], it will randomly zero some values inside the channels with the given probability
